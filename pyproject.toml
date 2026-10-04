@@ -1,0 +1,15 @@
+[project]
+name = "order-management-system"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "django==6.1.1",
+    "djangorestframework==3.18.1",
+    "celery==5.6.2",
+    "redis==8.1.0",
+    "gunicorn==26.2.0",
+    "psycopg[binary]==3.3.6",
+]
+
+[tool.uv]
+package = false
