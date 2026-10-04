@@ -21,7 +21,7 @@ htmlcov/
 
 celerybeat.pid
 celerybeat-schedule
-celerybeat-schedule.*
+celerybeat-schedule*
 
 .vscode/
 .idea/

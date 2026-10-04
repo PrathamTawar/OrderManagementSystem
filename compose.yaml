@@ -1,8 +1,28 @@
+x-app: &app
+  image: order-management-system:latest
+  build:
+    context: .
+    target: runtime
+
 services:
+  migrate:
+    <<: *app
+
+    command:
+      - python
+      - manage.py
+      - migrate
+      - --noinput
+
+    env_file:
+      - .env
+
+    depends_on:
+      db:
+        condition: service_healthy
+
   web:
-    build:
-      context: .
-      target: runtime
+    <<: *app
 
     command:
       - gunicorn
@@ -25,17 +45,15 @@ services:
       - "8000"
 
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
     restart: unless-stopped
 
   celery:
-    build:
-      context: .
-      target: runtime
+    <<: *app
 
     command:
       - celery
@@ -49,17 +67,15 @@ services:
       - .env
 
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
     restart: unless-stopped
 
   celery-beat:
-    build:
-      context: .
-      target: runtime
+    <<: *app
 
     command:
       - celery
@@ -72,8 +88,8 @@ services:
       - .env
 
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 

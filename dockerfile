@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM ghcr.io/astral-sh/uv:0.12.21 AS builder
+FROM python:3.14.8-slim-trixie AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -11,11 +13,9 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --locked --no-install-project
+RUN uv sync --locked --no-install-project --no-dev
 
 COPY . .
-
-RUN uv sync --locked --no-install-project
 
 
 FROM python:3.14.8-slim-trixie AS runtime
@@ -30,15 +30,13 @@ RUN groupadd --system django \
     && useradd --system --gid django --create-home django
 
 COPY --from=builder /opt/venv /opt/venv
-COPY . .
-
-RUN mkdir -p /app/staticfiles /app/media \
-    && chown -R django:django /app
-
+COPY --from=builder /app /app
 COPY entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh \
-    && chown django:django /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh \
+    && chmod +x /entrypoint.sh \
+    && mkdir -p /app/staticfiles /app/media \
+    && chown -R django:django /app /opt/venv /entrypoint.sh
 
 USER django
 
