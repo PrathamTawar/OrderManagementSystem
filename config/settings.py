@@ -1,6 +1,6 @@
-from pathlib import Path
 import os
 from datetime import timedelta
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +26,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'accounts',
+    'phonenumber_field',
 ]
 
 MIDDLEWARE = [
@@ -121,6 +123,8 @@ SIMPLE_JWT = {
 
     "TOKEN_TYPE_CLAIM": "token_type",
 }
+
+AUTH_USER_MODEL = 'accounts.User'
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
