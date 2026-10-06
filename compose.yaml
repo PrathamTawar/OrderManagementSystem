@@ -2,7 +2,7 @@ x-app: &app
   image: order-management-system:latest
   build:
     context: .
-    target: runtime
+    target: runtime-prod
 
 services:
   migrate:

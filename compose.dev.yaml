@@ -1,8 +1,11 @@
 x-app: &app
-  image: order-management-system:latest
+  image: order-management-system:dev
   build:
     context: .
-    target: runtime
+    target: runtime-dev
+    args:
+      UID: ${DOCKER_UID:-1000}
+      GID: ${DOCKER_GID:-1000}
 
 services:
   migrate:
