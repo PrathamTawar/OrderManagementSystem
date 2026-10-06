@@ -11,17 +11,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Copy dependency files first so this layer is cached when application code changes.
+# Copy dependency files first to maximize Docker layer caching.
 COPY pyproject.toml uv.lock ./
 
-# Use BuildKit cache for uv packages to speed up dependency installation.
+# Cache uv packages between builds.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
         --locked \
         --no-install-project \
         --no-dev
 
-# Copy the application source after dependencies.
+# Copy application source after dependencies.
 COPY . .
 
 
@@ -39,22 +39,15 @@ FROM runtime-base AS runtime-dev
 ARG UID=1000
 ARG GID=1000
 
-# Create the Django user with the same UID/GID as the host user.
-RUN groupadd --gid "$GID" django \
-    && useradd \
-        --uid "$UID" \
-        --gid "$GID" \
-        --create-home \
-        --shell /bin/bash \
-        django
-
+# Copy the environment and source code for development.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app /app
 
-# Copy the entrypoint with execute permission.
+# The script is required to use LF line endings in the repository.
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
-USER django
+# Use the host user's numeric UID/GID for bind-mounted files.
+USER ${UID}:${GID}
 
 EXPOSE 8000
 
@@ -72,15 +65,15 @@ RUN groupadd --system django \
         --shell /bin/sh \
         django
 
+# Keep the virtual environment root-owned and copy application files
+# directly with the correct ownership.
 COPY --from=builder /opt/venv /opt/venv
-
-# Assign application files to the production user while copying them.
 COPY --from=builder --chown=django:django /app /app
 
-# Copy the entrypoint with execute permission.
+# The script is required to use LF line endings in the repository.
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 
-# Create directories Django may need to write to at runtime.
+# Only directories that need runtime write access are writable by Django.
 RUN mkdir -p /app/staticfiles /app/media \
     && chown django:django /app/staticfiles /app/media
 
