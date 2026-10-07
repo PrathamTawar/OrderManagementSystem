@@ -6,8 +6,8 @@ from phonenumber_field.modelfields import PhoneNumberField
 class Organization(models.Model):
     # * basic info
     name = models.CharField(max_length=255)
-    phone_number = PhoneNumberField(unique=True)
-    email = models.EmailField(unique=True)
+    phone_number = PhoneNumberField(unique=True, blank=True, null=True)
+    email = models.EmailField(unique=True, blank=True, null=True)
 
     # * address info
     address_line1 = models.TextField()

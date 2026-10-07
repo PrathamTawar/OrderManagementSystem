@@ -1,14 +1,8 @@
 from django.contrib.auth.models import Permission
+from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
 
 from .models import Membership, Organization, Role
-
-
-# *organization serializer W/R
-class OrganizationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Organization
-        fields = "__all__"
 
 
 # *role serializer R
@@ -104,3 +98,28 @@ class MembershipCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid role.")
 
         return role
+
+
+# *organization serializer W/R
+class OrganizationSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
+    phone_number = PhoneNumberField(required=True)
+
+    class Meta:
+        model = Organization
+        fields = "__all__"
+
+
+class OrganizationListSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="organization.id")
+    name = serializers.CharField(source="organization.name")
+    email = serializers.EmailField(source="organization.email")
+    profile_picture = serializers.URLField(source="organization.profile_picture")
+    city = serializers.CharField(source="organization.city")
+    state = serializers.CharField(source="organization.state")
+    country = serializers.CharField(source="organization.country")
+    role = RoleSerializer(read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = ["id", "name", "email", "profile_picture", "city", "state", "country", "role", "is_owner"]  # noqa: RUF012
