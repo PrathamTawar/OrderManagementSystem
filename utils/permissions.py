@@ -20,8 +20,8 @@ def get_organization_id(request):
     raw = request.headers.get(ORG_HEADER)
     try:
         organization_id = int(raw)
-    except TypeError, ValueError:
-        raise ValidationError({ORG_HEADER: "Missing or invalid organization id."})
+    except (TypeError, ValueError) as e:
+        raise ValidationError({ORG_HEADER: "Missing or invalid organization id."})from e
     if organization_id <= 0:
         raise ValidationError({ORG_HEADER: "Missing or invalid organization id."})
     return organization_id

@@ -38,30 +38,30 @@ class PermissionField(serializers.RelatedField):
     def to_internal_value(self, data):
         if not isinstance(data, dict):
             raise serializers.ValidationError(
-                "Permission must contain app_name and codename."
+                "Permission must contain app_label and codename."
             )
 
-        app_name = data.get("app_name")
+        app_label = data.get("app_label")
         codename = data.get("codename")
 
-        if not app_name or not codename:
+        if not app_label or not codename:
             raise serializers.ValidationError(
-                "Both app_name and codename are required."
+                "Both app_label and codename are required."
             )
 
         try:
             return self.get_queryset().get(
-                content_type__app_label=app_name,
+                content_type__app_label=app_label,
                 codename=codename,
             )
         except Permission.DoesNotExist as e:
             raise serializers.ValidationError(
-                f"Invalid permission: {app_name}.{codename}"
+                f"Invalid permission: {app_label}.{codename}"
             ) from e
 
     def to_representation(self, value):
         return {
-            "app_name": value.content_type.app_label,
+            "app_label": value.content_type.app_label,
             "codename": value.codename,
         }
 
@@ -95,8 +95,12 @@ class MembershipCreateSerializer(serializers.ModelSerializer):
         model = Membership
         fields = ["user", "organization", "role"]  # noqa: RUF012
 
+    def validate_role(self, role):
+        if not role:
+            return role
+        organization = self.context["organization"]
 
-class OwnerCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Membership
-        fields = ["user", "organization", "role", "is_owner"]  # noqa: RUF012
+        if role.organization_id != organization.id:
+            raise serializers.ValidationError("Invalid role.")
+
+        return role
