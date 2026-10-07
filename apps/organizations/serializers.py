@@ -1,7 +1,7 @@
 from django.contrib.auth.models import Permission
 from rest_framework import serializers
 
-from .models import Organization, Role
+from .models import Membership, Organization, Role
 
 
 # *organization serializer W/R
@@ -77,12 +77,26 @@ class RoleCreateSerializer(serializers.ModelSerializer):
 # * membership serializer R
 class MembershipSerializer(serializers.ModelSerializer):
     class Meta:
-        model = "Membership"
+        model = Membership
         fields = "__all__"
+
+    def get_fields(self):
+        fields = super().get_fields()
+
+        for field in fields.values():
+            field.read_only = True
+
+        return fields
 
 
 # * membership serializer W
 class MembershipCreateSerializer(serializers.ModelSerializer):
     class Meta:
-        model = "Membership"
+        model = Membership
         fields = ["user", "organization", "role"]  # noqa: RUF012
+
+
+class OwnerCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Membership
+        fields = ["user", "organization", "role", "is_owner"]  # noqa: RUF012

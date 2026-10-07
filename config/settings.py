@@ -2,6 +2,8 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -46,6 +48,11 @@ MIDDLEWARE = [
 
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "x-organization-id",
+)
 
 ROOT_URLCONF = "config.urls"
 

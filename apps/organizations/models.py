@@ -59,6 +59,7 @@ class Membership(models.Model):
         blank=True,
         related_name="user_relationships",
     )
+    is_owner = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("user", "organization")
