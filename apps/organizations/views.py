@@ -4,10 +4,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from utils.permissions import HasOrgPermission
+from utils.org_api_view import OrgAPIView
 
 from .models import Membership, Organization
-from .serializers import OrganizationListSerializer, OrganizationSerializer
+from .serializers import (
+    MembershipDetailSerializer,
+    MembershipSerializer,
+    OrganizationListSerializer,
+    OrganizationSerializer,
+)
 
 
 class OrganizationCreateView(APIView):
@@ -40,33 +45,36 @@ class MyOrganizationListView(APIView):
         return Response(serializer.data)
 
 
-class OrganizationDetailView(APIView):
-    permission_classes = [IsAuthenticated, HasOrgPermission]  # noqa: RUF012
+class OrganizationDetailView(OrgAPIView):
     model = Organization
-
-    def get_queryset(self, request):
-        if pk := int(request.headers.get("X-Organization-Id")):
-            return Organization.objects.filter(id=pk).first()
-        return Response(
-            {"error": "Missing or invalid organization"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    serializer_class = OrganizationSerializer
+    own_serializer_class = OrganizationSerializer
+    org_lookup = "id"
 
     def get(self, request):
-        organization = self.get_queryset(request)
-        serializer = OrganizationSerializer(organization)
+        organization = self.get_queryset().get()
+        serializer = self.get_serializer(organization)
         return Response(serializer.data)
 
     def put(self, request):
-        organization = self.get_queryset(request)
-        serializer = OrganizationSerializer(
-            organization, data=request.data, partial=True
-        )
+        organization = self.get_queryset().get()
+        serializer = self.get_serializer(organization, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request):
-        organization = self.get_queryset(request)
+        organization = self.get_queryset().get()
         organization.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AllMembershipView(OrgAPIView):
+    model = Membership
+    serializer_class = MembershipDetailSerializer
+    own_serializer_class = MembershipSerializer
+
+    def get(self, request):
+        memberships = self.get_queryset()
+        serializer = self.get_serializer(memberships, many=True)
+        return Response(serializer.data)
