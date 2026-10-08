@@ -101,6 +101,9 @@ services:
     env_file:
       - .env.dev
 
+    volumes:
+    - postgres_data:/var/lib/postgresql
+
     healthcheck:
       test:
         - CMD-SHELL
@@ -115,6 +118,9 @@ services:
     env_file:
       - .env.dev
 
+    volumes:
+      - redis_data:/data
+
     command:
       - sh
       - -c
@@ -127,3 +133,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
