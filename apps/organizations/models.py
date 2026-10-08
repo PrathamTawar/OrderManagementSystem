@@ -63,6 +63,9 @@ class Membership(models.Model):
 
     class Meta:
         unique_together = ("user", "organization")
+        permissions = [  # noqa: RUF012
+            ("view_own_membership", "Can view own membership")
+        ]
 
     def __str__(self):
         return f"{self.user.email} - {self.organization.name}"
