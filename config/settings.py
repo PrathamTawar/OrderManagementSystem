@@ -159,6 +159,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "Asia/Kolkata"
 CELERY_ENABLE_UTC = True
+CELERY_IMPORTS = ("utils.tasks",)
 
 
 # Email
@@ -166,6 +167,15 @@ CELERY_ENABLE_UTC = True
 
 MAILERS = {
     "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": os.environ["EMAIL_HOST"],
+            "port": int(os.environ["EMAIL_PORT"]),
+            "use_tls": os.environ["EMAIL_USE_TLS"].lower() == "true",
+            "username": os.environ["EMAIL_HOST_USER"],
+            "password": os.environ["EMAIL_HOST_PASSWORD"],
+            "timeout": 10,
+        },
     },
 }
+DEFAULT_FROM_EMAIL = os.environ["DEFAULT_FROM_EMAIL"]
