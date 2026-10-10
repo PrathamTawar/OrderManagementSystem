@@ -15,19 +15,24 @@ from apps.accounts.models import User
 from utils.tasks import send_email_task
 
 from .base_view import OrgAPIView
-from .models import Membership, MembershipInvitation, Organization
+from .models import Membership, MembershipInvitation, Organization, Role
+from .role_utils import grantable_keys
 from .serializers import (
     InvitationCreateSerializer,
     InvitationSerializer,
     MembershipDetailSerializer,
     OrganizationListSerializer,
     OrganizationSerializer,
+    RoleCreateSerializer,
+    RoleSerializer,
 )
 
 
-def can_assign_role(perm_ids, role):
-    """perm_ids is request.org_perm_ids. None means owner, so unrestricted."""
-    return perm_ids is None or not role.permissions.exclude(id__in=perm_ids).exists()
+def can_assign_role(membership, role):
+    if membership.is_owner:
+        return True
+    target = set(role.permissions.values_list("content_type__app_label", "codename"))
+    return target <= grantable_keys(membership)
 
 
 class OrganizationListCreateView(APIView):
@@ -205,3 +210,28 @@ class MembershipInvitationListCreateView(OrgAPIView):
             ).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class RoleListCreateView(OrgAPIView):
+    model = Role
+    serializer_class = RoleSerializer
+    create_serializer_class = RoleCreateSerializer
+
+    def get(self, request):
+        roles = self.get_queryset()
+        serializer = self.get_serializer(roles, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        try:
+            with transaction.atomic():
+                serializer = self.get_serializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save(organization_id=request.organization_id)
+        except IntegrityError:
+            return Response(
+                {"error": "Could not create the role."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
