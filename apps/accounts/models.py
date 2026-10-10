@@ -45,6 +45,6 @@ class User(AbstractUser):
     profile_picture = models.URLField(blank=True, null=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = []
+    REQUIRED_FIELDS = []  # noqa: RUF012
 
     objects = UserManager()
