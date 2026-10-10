@@ -1,5 +1,4 @@
 from django.contrib.auth.models import Permission
-from django.utils import timezone
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
 
@@ -162,7 +161,7 @@ class MembershipCreateSerializer(serializers.ModelSerializer):
 
 
 class InvitationSerializer(serializers.ModelSerializer):
-    role_name = serializers.CharField(source="role.name", read_only=True)
+    role_name = serializers.CharField(source="role.name", default=None, read_only=True)
     invited_by_name = serializers.CharField(
         source="invited_by.full_name", read_only=True
     )
@@ -202,15 +201,5 @@ class InvitationCreateSerializer(serializers.ModelSerializer):
         ).exists():
             raise serializers.ValidationError(
                 "This user is already a member of the organization."
-            )
-
-        if MembershipInvitation.objects.filter(
-            email__iexact=email,
-            organization_id=organization_id,
-            status=MembershipInvitation.Status.PENDING,
-            expires_at__gt=timezone.now(),
-        ).exists():
-            raise serializers.ValidationError(
-                "An active invitation already exists for this user."
             )
         return email

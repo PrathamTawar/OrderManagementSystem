@@ -1,6 +1,7 @@
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
+from django.template.loader import render_to_string
 
 
 @shared_task(
@@ -12,8 +13,13 @@ def send_email_task(
     subject,
     message,
     recipient_list,
-    html_message=None,
+    template_path=None,
+    message_data=None,
 ):
+    html_message = render_to_string(
+        template_path,
+        message_data,
+    )
     return send_mail(
         subject=subject,
         message=message,

@@ -4,9 +4,9 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,6 +23,11 @@ from .serializers import (
     OrganizationListSerializer,
     OrganizationSerializer,
 )
+
+
+def can_assign_role(perm_ids, role):
+    """perm_ids is request.org_perm_ids. None means owner, so unrestricted."""
+    return perm_ids is None or not role.permissions.exclude(id__in=perm_ids).exists()
 
 
 class OrganizationListCreateView(APIView):
@@ -85,7 +90,6 @@ class MembershipListView(OrgAPIView):
     serializer_class = MembershipDetailSerializer
     permission_map = {  # noqa: RUF012
         "GET": "organizations.view_membership",
-        "POST": "organizations.add_membership",
     }
 
     def get(self, request):
@@ -100,21 +104,29 @@ class MembershipInvitationListCreateView(OrgAPIView):
     create_serializer_class = InvitationCreateSerializer
     expiration_time = 24
 
-    def _expire_pending_invitations(self, organization, now):
+    def _expire_pending_invitations(self, organization, email, now):
         MembershipInvitation.objects.filter(
             organization=organization,
+            email=email,
             status=MembershipInvitation.Status.PENDING,
             expires_at__lte=now,
-        ).update(
-            status=MembershipInvitation.Status.EXPIRED,
-        )
+        ).update(status=MembershipInvitation.Status.EXPIRED)
 
-    def _create_token_and_expiration(self, now):
+    def _create_token(self):
         raw_token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        expires_at = now + timedelta(hours=self.expiration_time)
 
-        return raw_token, token_hash, expires_at
+        return raw_token, token_hash
+
+    def can_assign_role(self, membership, role):
+        if membership.is_owner:
+            return True
+        mine = (
+            set(membership.role.permissions.values_list("id", flat=True))
+            if membership.role
+            else set()
+        )
+        return set(role.permissions.values_list("id", flat=True)) <= mine
 
     def get(self, request):
         invitations = self.get_queryset()
@@ -123,45 +135,38 @@ class MembershipInvitationListCreateView(OrgAPIView):
 
     def post(self, request):
         try:
+            serializer = self.get_serializer(
+                data=request.data,
+                context={"organization_id": request.organization_id},
+            )
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+            role = data.get("role")
+            if role and not can_assign_role(request.org_perm_ids, role):
+                raise PermissionDenied(
+                    "You cannot invite someone with a role that has permissions you do not have."
+                )
+            organization = request.org_membership.organization
+            now = timezone.now()
+            raw_token, token_hash = self._create_token()
+
             with transaction.atomic():
-                organization = Organization.objects.select_for_update().get(
-                    pk=request.organization_id,
-                )
-
                 now = timezone.now()
-
-                self._expire_pending_invitations(organization, now)
-                raw_token, token_hash, expires_at = self._create_token_and_expiration(now)
-
-                serializer = self.get_serializer(
-                    data=request.data,
-                    context={
-                        "organization_id": organization.pk,
-                    },
-                )
-
-                serializer.is_valid(raise_exception=True)
-
+                self._expire_pending_invitations(organization, data["email"], now)
                 invitation = serializer.save(
                     invited_by=request.user,
                     organization=organization,
                     token_hash=token_hash,
-                    expires_at=expires_at,
+                    expires_at=now + timedelta(hours=self.expiration_time),
                     status=MembershipInvitation.Status.PENDING,
                 )
 
                 accept_url = f"{settings.INVITATION_ACCEPT_URL.rstrip('/')}/{raw_token}"
                 organization_name = invitation.organization.name
-                existing_user = User.objects.filter(email__iexact=invitation.email).exists()
-                html_message = render_to_string(
-                    "membership_invitation.html",
-                    {
-                        "existing_user": existing_user,
-                        "invited_by_email": invitation.invited_by.email,
-                        "accept_url": accept_url,
-                        "organization_name": organization_name,
-                    },
-                )
+                existing_user = User.objects.filter(
+                    email__iexact=invitation.email
+                ).exists()
+
                 transaction.on_commit(
                     lambda: send_email_task.delay(
                         subject=f"Invitation to join {organization_name}",
@@ -170,7 +175,13 @@ class MembershipInvitationListCreateView(OrgAPIView):
                             f"Accept your invitation here: {accept_url}"
                         ),
                         recipient_list=[invitation.email],
-                        html_message=html_message,
+                        template_path="membership_invitation.html",
+                        message_data={
+                            "existing_user": existing_user,
+                            "invited_by_email": invitation.invited_by.email,
+                            "accept_url": accept_url,
+                            "organization_name": organization_name,
+                        },
                     )
                 )
         except IntegrityError as exc:
