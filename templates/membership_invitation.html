@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organization Invitation</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 24px;
+      background-color: #f4f6f8;
+      font-family: Arial, sans-serif;
+      color: #333;
+    "
+  >
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+      <tr>
+        <td align="center">
+          <table
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            style="max-width: 560px; background: #ffffff; border-radius: 8px"
+          >
+            <tr>
+              <td style="padding: 32px">
+                <h2 style="color: #1f2937">
+                  Invitation to join {{ organization_name }}
+                </h2>
+
+                <p>
+                  <strong>{{ invited_by_email }}</strong>
+                  has invited you to join
+                  <strong>{{ organization_name }}</strong>.
+                </p>
+
+                {% if existing_user %}
+                <p>
+                  Sign in to your existing account and accept the invitation.
+                </p>
+                {% else %}
+                <p>Complete your account setup by accepting the invitation.</p>
+                {% endif %}
+
+                <p style="text-align: center; margin: 28px 0">
+                  <a
+                    href="{{ accept_url }}"
+                    style="
+                      display: inline-block;
+                      padding: 14px 24px;
+                      background: #2563eb;
+                      color: #ffffff;
+                      text-decoration: none;
+                      border-radius: 6px;
+                    "
+                  >
+                    {% if existing_user %} Accept Invitation {% else %} Set
+                    Password and Join {% endif %}
+                  </a>
+                </p>
+
+                <p style="font-size: 13px; color: #6b7280">
+                  This invitation expires in 24 hours.
+                </p>
+
+                <p style="font-size: 13px; color: #6b7280">
+                  If the button doesn't work, copy this link into your browser:
+                </p>
+
+                <p style="font-size: 13px; overflow-wrap: anywhere">
+                  <a href="{{ accept_url }}">{{ accept_url }}</a>
+                </p>
+
+                <p style="font-size: 12px; line-height: 1.6; color: #6b7280">
+                  If you need assistance or have concerns about this invitation,
+                  contact
+                  <a
+                    href="mailto:{{ invited_by_email }}"
+                    style="color: #2563eb; text-decoration: none"
+                  >
+                    {{ invited_by_email }} </a
+                  >.
+                </p>
+
+                <hr
+                  style="
+                    border: 0;
+                    border-top: 1px solid #e5e7eb;
+                    margin: 24px 0;
+                  "
+                />
+
+                <sub style="font-size: 12px; line-height: 1.6; color: #6b7280">
+                  This invitation grants access to {{ organization_name }}'s
+                  resources once accepted. Do not forward this email or share
+                  the invitation link. If you believe you received this
+                  invitation by mistake, do not use the link and notify the
+                  organization administrator immediately so the invitation can
+                  be revoked.
+                </sub>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

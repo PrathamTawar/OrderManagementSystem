@@ -1,5 +1,8 @@
+from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 from phonenumber_field.modelfields import PhoneNumberField
 
 
@@ -69,3 +72,53 @@ class Membership(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.organization.name}"
+
+
+class MembershipInvitation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        EXPIRED = "expired", "Expired"
+        REVOKED = "revoked", "Revoked"
+
+    email = models.EmailField()
+    full_name = models.CharField(max_length=150)
+
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+    )
+    role = models.ForeignKey(
+        "organizations.Role",
+        on_delete=models.PROTECT,
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+    )
+
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                Lower("email"),
+                "organization",
+                condition=Q(status="pending"),
+                name="uniq_pend_inv_org_email",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email} - {self.organization.name}"

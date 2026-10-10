@@ -1,10 +1,11 @@
 from django.contrib.auth.models import Permission
+from django.utils import timezone
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
 
 from apps.accounts.serializers import UserSerializer
 
-from .models import Membership, Organization, Role
+from .models import Membership, MembershipInvitation, Organization, Role
 
 
 # *role serializer R
@@ -152,9 +153,64 @@ class MembershipCreateSerializer(serializers.ModelSerializer):
     def validate_role(self, role):
         if not role:
             return role
-        organization = self.context["organization"]
+        organization_id = self.context["organization_id"]
 
-        if role.organization_id != organization.id:
+        if role.organization_id != organization_id:
             raise serializers.ValidationError("Invalid role.")
 
         return role
+
+
+class InvitationSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    invited_by_name = serializers.CharField(
+        source="invited_by.full_name", read_only=True
+    )
+
+    class Meta:
+        model = MembershipInvitation
+        fields = [  # noqa: RUF012
+            "email",
+            "full_name",
+            "role_name",
+            "invited_by",
+            "invited_by_name",
+            "expires_at",
+            "accepted_at",
+            "created_at",
+        ]
+
+
+class InvitationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MembershipInvitation
+        fields = ["email", "full_name", "role"]  # noqa: RUF012
+
+    def validate_role(self, role):
+        organization_id = self.context["organization_id"]
+
+        if role.organization_id != organization_id:
+            raise serializers.ValidationError("Invalid role.")
+
+        return role
+
+    def validate_email(self, email):
+        organization_id = self.context["organization_id"]
+        if Membership.objects.filter(
+            user__email__iexact=email,
+            organization_id=organization_id,
+        ).exists():
+            raise serializers.ValidationError(
+                "This user is already a member of the organization."
+            )
+
+        if MembershipInvitation.objects.filter(
+            email__iexact=email,
+            organization_id=organization_id,
+            status=MembershipInvitation.Status.PENDING,
+            expires_at__gt=timezone.now(),
+        ).exists():
+            raise serializers.ValidationError(
+                "An active invitation already exists for this user."
+            )
+        return email

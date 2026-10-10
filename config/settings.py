@@ -59,7 +59,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -179,3 +179,5 @@ MAILERS = {
     },
 }
 DEFAULT_FROM_EMAIL = os.environ["DEFAULT_FROM_EMAIL"]
+
+INVITATION_ACCEPT_URL = os.environ["INVITATION_ACCEPT_URL"]
