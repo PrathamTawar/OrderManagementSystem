@@ -4,8 +4,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from utils.org_api_view import OrgAPIView
 
+from .base_view import OrgAPIView
 from .models import Membership, Organization
 from .serializers import (
     MembershipDetailSerializer,

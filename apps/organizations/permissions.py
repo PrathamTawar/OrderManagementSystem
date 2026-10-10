@@ -152,7 +152,6 @@ class HasOrgPermission(BasePermission):
             return False
 
         # Store organization context for the rest of the request.
-        request.organization_id = organization_id
         request.org_membership = membership
 
         # Owner has unrestricted organization access.

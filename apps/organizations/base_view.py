@@ -2,14 +2,14 @@ from django.shortcuts import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
-from utils.permissions import HasOrgPermission
+from .permissions import HasOrgPermission
 
 
 class OrgAPIView(APIView):
     permission_classes = [IsAuthenticated, HasOrgPermission]  # noqa: RUF012
 
     model = None
-
+    exclude_owners = False
     """
     Serializer used when the user has organization-wide access.
 
@@ -26,6 +26,11 @@ class OrgAPIView(APIView):
     serializer.
     """
     own_serializer_class = None
+
+    """
+    Serializer used when the method is POST.
+    """
+    create_serializer_class = None
 
     """
     Field used to restrict objects to the current organization.
@@ -62,7 +67,10 @@ class OrgAPIView(APIView):
         "all" -> organization-wide access
         "own" -> own-only access
         """
-        if self.request.org_scope == "own":
+        if self.request.method == "POST" and self.create_serializer_class is not None:
+            return self.create_serializer_class
+
+        elif self.request.org_scope == "own":
             if self.own_serializer_class is None:
                 raise AttributeError(
                     f"{self.__class__.__name__} must define 'own_serializer_class'."
@@ -112,6 +120,9 @@ class OrgAPIView(APIView):
                     self.owner_field: self.request.user,
                 }
             )
+
+        if self.exclude_owners and not self.request.org_membership.is_owner:
+            qs = qs.exclude(is_owner=True)
 
         return qs
 
