@@ -1,14 +1,11 @@
 from django.contrib.auth.models import Permission
+from django.utils import timezone
+from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
 
-from .models import Membership, Organization, Role
+from apps.accounts.serializers import UserSerializer
 
-
-# *organization serializer W/R
-class OrganizationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Organization
-        fields = "__all__"
+from .models import Membership, MembershipInvitation, Organization, Role
 
 
 # *role serializer R
@@ -74,11 +71,57 @@ class RoleCreateSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "permissions"]  # noqa: RUF012
 
 
-# * membership serializer R
-class MembershipSerializer(serializers.ModelSerializer):
+# *organization serializer W/R
+class OrganizationSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
+    phone_number = PhoneNumberField(required=True)
+
+    class Meta:
+        model = Organization
+        fields = "__all__"
+
+
+class OrganizationListSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="organization.id")
+    name = serializers.CharField(source="organization.name")
+    email = serializers.EmailField(source="organization.email")
+    profile_picture = serializers.URLField(source="organization.profile_picture")
+    city = serializers.CharField(source="organization.city")
+    state = serializers.CharField(source="organization.state")
+    country = serializers.CharField(source="organization.country")
+    role = RoleSerializer(read_only=True)
+
     class Meta:
         model = Membership
-        fields = "__all__"
+        fields = [  # noqa: RUF012
+            "id",
+            "name",
+            "email",
+            "profile_picture",
+            "city",
+            "state",
+            "country",
+            "role",
+            "is_owner",
+        ]
+
+
+# * membership serializer R
+class MembershipSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name", read_only=True
+    )
+
+    class Meta:
+        model = Membership
+        fields = [  # noqa: RUF012
+            "id",
+            "user",
+            "role_name",
+            "organization_name",
+            "is_owner",
+        ]
 
     def get_fields(self):
         fields = super().get_fields()
@@ -89,18 +132,85 @@ class MembershipSerializer(serializers.ModelSerializer):
         return fields
 
 
+class MembershipDetailSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    role = RoleSerializer(read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name", read_only=True
+    )
+
+    class Meta:
+        model = Membership
+        fields = ["id", "user", "role", "organization_name", "is_owner"]  # noqa: RUF012
+
+
 # * membership serializer W
 class MembershipCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Membership
-        fields = ["user", "organization", "role"]  # noqa: RUF012
+        fields = ["user", "role"]  # noqa: RUF012
 
     def validate_role(self, role):
         if not role:
             return role
-        organization = self.context["organization"]
+        organization_id = self.context["organization_id"]
 
-        if role.organization_id != organization.id:
+        if role.organization_id != organization_id:
             raise serializers.ValidationError("Invalid role.")
 
         return role
+
+
+class InvitationSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    invited_by_name = serializers.CharField(
+        source="invited_by.full_name", read_only=True
+    )
+
+    class Meta:
+        model = MembershipInvitation
+        fields = [  # noqa: RUF012
+            "email",
+            "full_name",
+            "role_name",
+            "invited_by",
+            "invited_by_name",
+            "expires_at",
+            "accepted_at",
+            "created_at",
+        ]
+
+
+class InvitationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MembershipInvitation
+        fields = ["email", "full_name", "role"]  # noqa: RUF012
+
+    def validate_role(self, role):
+        organization_id = self.context["organization_id"]
+
+        if role.organization_id != organization_id:
+            raise serializers.ValidationError("Invalid role.")
+
+        return role
+
+    def validate_email(self, email):
+        organization_id = self.context["organization_id"]
+        if Membership.objects.filter(
+            user__email__iexact=email,
+            organization_id=organization_id,
+        ).exists():
+            raise serializers.ValidationError(
+                "This user is already a member of the organization."
+            )
+
+        if MembershipInvitation.objects.filter(
+            email__iexact=email,
+            organization_id=organization_id,
+            status=MembershipInvitation.Status.PENDING,
+            expires_at__gt=timezone.now(),
+        ).exists():
+            raise serializers.ValidationError(
+                "An active invitation already exists for this user."
+            )
+        return email

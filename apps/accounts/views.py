@@ -94,8 +94,7 @@ class SignInView(APIView):
                     },
                     status=200,
                 )
-            else:
-                return Response({"error": "Invalid credentials."}, status=401)
+            return Response({"error": "Invalid credentials."}, status=401)
         except User.DoesNotExist:
             return Response({"error": "User not found."}, status=404)
 

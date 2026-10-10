@@ -59,7 +59,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -114,7 +114,7 @@ REST_FRAMEWORK = {
 
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=4),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -159,6 +159,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "Asia/Kolkata"
 CELERY_ENABLE_UTC = True
+CELERY_IMPORTS = ("utils.tasks",)
 
 
 # Email
@@ -166,6 +167,17 @@ CELERY_ENABLE_UTC = True
 
 MAILERS = {
     "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": os.environ["EMAIL_HOST"],
+            "port": int(os.environ["EMAIL_PORT"]),
+            "use_tls": os.environ["EMAIL_USE_TLS"].lower() == "true",
+            "username": os.environ["EMAIL_HOST_USER"],
+            "password": os.environ["EMAIL_HOST_PASSWORD"],
+            "timeout": 10,
+        },
     },
 }
+DEFAULT_FROM_EMAIL = os.environ["DEFAULT_FROM_EMAIL"]
+
+INVITATION_ACCEPT_URL = os.environ["INVITATION_ACCEPT_URL"]
