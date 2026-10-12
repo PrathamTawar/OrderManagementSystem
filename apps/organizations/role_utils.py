@@ -1,4 +1,22 @@
+from functools import lru_cache
+
+from django.apps import apps
+
 OWN_ACTIONS = ("view", "change", "delete")
+
+
+EXCLUDED_APPS = {
+    "accounts"
+}  # global data, not something an org role should control
+
+
+@lru_cache(maxsize=1)
+def assignable_apps():
+    return [
+        c.label
+        for c in apps.get_app_configs()
+        if c.name.startswith("apps.") and c.label not in EXCLUDED_APPS
+    ]
 
 
 def grantable_keys(membership):

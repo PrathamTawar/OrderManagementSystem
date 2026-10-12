@@ -3,26 +3,30 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth.models import Permission
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
+from apps.accounts.serializers import SignupSerializer
 from utils.tasks import send_email_task
 
 from .base_view import OrgAPIView
 from .models import Membership, MembershipInvitation, Organization, Role
-from .role_utils import grantable_keys
+from .role_utils import assignable_apps, grantable_keys
 from .serializers import (
     InvitationCreateSerializer,
     InvitationSerializer,
+    MembershipCreateSerializer,
     MembershipDetailSerializer,
     OrganizationListSerializer,
     OrganizationSerializer,
+    PermissionListSerializer,
     RoleCreateSerializer,
     RoleSerializer,
 )
@@ -123,16 +127,6 @@ class MembershipInvitationListCreateView(OrgAPIView):
 
         return raw_token, token_hash
 
-    def can_assign_role(self, membership, role):
-        if membership.is_owner:
-            return True
-        mine = (
-            set(membership.role.permissions.values_list("id", flat=True))
-            if membership.role
-            else set()
-        )
-        return set(role.permissions.values_list("id", flat=True)) <= mine
-
     def get(self, request):
         invitations = self.get_queryset()
         serializer = self.get_serializer(invitations, many=True)
@@ -147,7 +141,7 @@ class MembershipInvitationListCreateView(OrgAPIView):
             serializer.is_valid(raise_exception=True)
             data = serializer.validated_data
             role = data.get("role")
-            if role and not can_assign_role(request.org_perm_ids, role):
+            if role and not can_assign_role(request.org_membership, role):
                 raise PermissionDenied(
                     "You cannot invite someone with a role that has permissions you do not have."
                 )
@@ -225,13 +219,144 @@ class RoleListCreateView(OrgAPIView):
     def post(self, request):
         try:
             with transaction.atomic():
-                serializer = self.get_serializer(data=request.data)
+                serializer = self.get_serializer(
+                    data=request.data, context={"membership": request.org_membership}
+                )
                 serializer.is_valid(raise_exception=True)
                 serializer.save(organization_id=request.organization_id)
         except IntegrityError:
             return Response(
-                {"error": "Could not create the role."},
+                {"error": "Role already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class PermissionListView(OrgAPIView):
+    required_permission = "organizations.add_role"
+    serializer_class = PermissionListSerializer
+
+    def get(self, request):
+        perms = (
+            Permission.objects.filter(content_type__app_label__in=assignable_apps())
+            .select_related("content_type")
+            .order_by("content_type__app_label", "codename")
+        )
+        return Response(
+            PermissionListSerializer(
+                perms, many=True, context={"membership": request.org_membership}
+            ).data
+        )
+
+
+class InvitationAcceptView(APIView):
+    permission_classes = [AllowAny]  # noqa: RUF012
+
+    def get_invitation(self, request, *, for_update=False):
+        raw_token = request.headers.get("X-Invitation-Token")
+
+        if not raw_token:
+            raise ValidationError("Missing or invalid invitation token.")
+
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        invitations = MembershipInvitation.objects.filter(
+            token_hash=token_hash,
+            status=MembershipInvitation.Status.PENDING,
+            expires_at__gt=timezone.now(),
+        )
+
+        if for_update:
+            invitations = invitations.select_for_update()
+
+        invitation = invitations.first()
+
+        if invitation is None:
+            raise ValidationError("Invitation has expired or already accepted.")
+
+        return invitation
+
+    def get(self, request):
+        invitation = self.get_invitation(request)
+        serializer = InvitationSerializer(invitation)
+        return Response(serializer.data)
+
+    def post(self, request):
+        try:
+            with transaction.atomic():
+                # Lock and validate the invitation inside the transaction.
+                invitation = self.get_invitation(
+                    request,
+                    for_update=True,
+                )
+
+                if request.user.is_authenticated:
+                    # EXISTING AUTHENTICATED USER
+                    user = request.user
+
+                    if (
+                        user.email or ""
+                    ).strip().casefold() != invitation.email.strip().casefold():
+                        raise PermissionDenied(
+                            "This invitation belongs to a different "
+                            "email address. Sign in with the invited account."
+                        )
+
+                else:
+                    # UNAUTHENTICATED USER
+                    if User.objects.filter(email__iexact=invitation.email).exists():
+                        return Response(
+                            {
+                                "code": "account_exists",
+                                "detail": (
+                                    "An account already exists for this "
+                                    "email. Sign in to accept the invitation."
+                                ),
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+
+                    # NEW USER: do not trust client-supplied invitation details.
+                    data = request.data.copy()
+                    data["email"] = invitation.email
+                    data["full_name"] = invitation.full_name
+
+                    user_serializer = SignupSerializer(data=data)
+                    user_serializer.is_valid(raise_exception=True)
+                    user = user_serializer.save()
+                    print("user saved---------------------------------------")
+
+                # Create membership for either type of user.
+                membership_serializer = MembershipCreateSerializer(
+                    data={
+                        "user": user.pk,
+                        "role": invitation.role_id,
+                    },
+                    context={
+                        "organization_id": invitation.organization_id,
+                    },
+                )
+                print("membership_serializer saved------------------------", invitation.__dict__)
+                membership_serializer.is_valid(raise_exception=True)
+                membership_serializer.save(organization=invitation.organization)
+
+                invitation.status = MembershipInvitation.Status.ACCEPTED
+                invitation.save(update_fields=["status"])
+
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": (
+                        "Unable to accept invitation. The account or "
+                        "membership may already exist, or the invitation "
+                        "may have been consumed."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {"detail": "Invitation accepted successfully."},
+            status=status.HTTP_201_CREATED,
+        )
