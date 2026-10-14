@@ -6,7 +6,12 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
-from .serializers import SignupSerializer, UserSerializer, UserUpdateSerializer
+from .serializers import (
+    SignupSerializer,
+    UserDetailSerializer,
+    UserSerializer,
+    UserUpdateSerializer,
+)
 
 
 class UserPagination(PageNumberPagination):
@@ -36,15 +41,14 @@ class UserDetailView(APIView):
     permission_classes = [IsAuthenticated]  # noqa: RUF012
 
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        serializer = UserDetailSerializer(request.user)
         return Response(serializer.data, status=200)
 
     def put(self, request):
         serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=200)
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=200)
 
     def delete(self, request):
         user = request.user
@@ -56,18 +60,17 @@ class SignUpView(APIView):
     def post(self, request):
         data = request.data
         serializer = SignupSerializer(data=data)
-        if serializer.is_valid():
-            user = serializer.save()
-            refresh = RefreshToken.for_user(user)
-            return Response(
-                {
-                    "user": serializer.data,
-                    "refresh": str(refresh),
-                    "access": str(refresh.access_token),
-                },
-                status=201,
-            )
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "user": UserDetailSerializer(user).data,
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+            },
+            status=201,
+        )
 
 
 class SignInView(APIView):
@@ -76,9 +79,7 @@ class SignInView(APIView):
         password = request.data.get("password")
 
         if not email or not password:
-            return Response(
-                {"error": "Credentials are required."}, status=400
-            )
+            return Response({"error": "Credentials are required."}, status=400)
 
         try:
             user = User.objects.get(email=email)
@@ -88,7 +89,7 @@ class SignInView(APIView):
                 user.save(update_fields=["last_login"])
                 return Response(
                     {
-                        "user": UserSerializer(user).data,
+                        "user": UserDetailSerializer(user).data,
                         "refresh": str(refresh),
                         "access": str(refresh.access_token),
                     },

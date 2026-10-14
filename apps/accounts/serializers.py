@@ -11,10 +11,46 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {"password": {"write_only": True}}  # noqa: RUF012
 
 
+class UserDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [  # noqa: RUF012
+            "id",
+            "email",
+            "full_name",
+            "phone_number",
+            "country",
+            "state",
+            "city",
+            "profile_picture",
+            "date_joined",
+        ]
+        read_only_fields = fields
+
+
+class UserSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [  # noqa: RUF012
+            "id",
+            "full_name",
+            "email",
+            "phone_number",
+            "profile_picture",
+        ]
+
+
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["full_name", "phone_number", "country", "state", "city", "profile_picture"]
+        fields = [
+            "full_name",
+            "phone_number",
+            "country",
+            "state",
+            "city",
+            "profile_picture",
+        ]
 
 
 class SignupSerializer(serializers.ModelSerializer):
@@ -23,8 +59,17 @@ class SignupSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["email", "full_name", "phone_number", "password", "country", "state", "city", "profile_picture"]
-        extra_kwargs = {"password": {"write_only": True, "required": True}}
+        fields = [  # noqa: RUF012
+            "email",
+            "full_name",
+            "phone_number",
+            "password",
+            "country",
+            "state",
+            "city",
+            "profile_picture",
+        ]
+        extra_kwargs = {"password": {"write_only": True, "required": True}}  # noqa: RUF012
 
     def create(self, validated_data):
         password = validated_data.pop("password")
