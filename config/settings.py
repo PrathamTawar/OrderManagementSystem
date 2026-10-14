@@ -52,6 +52,7 @@ if DEBUG:
 CORS_ALLOW_HEADERS = (
     *default_headers,
     "x-organization-id",
+    "x-invitation-token",
 )
 
 ROOT_URLCONF = "config.urls"
