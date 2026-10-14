@@ -4,7 +4,7 @@ from django.utils import timezone
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
 
-from apps.accounts.serializers import UserSerializer
+from apps.accounts.serializers import UserDetailSerializer
 
 from .models import Membership, MembershipInvitation, Organization, Role
 from .role_utils import assignable_apps, grantable_keys
@@ -175,7 +175,7 @@ class MembershipSerializer(serializers.ModelSerializer):
 
 
 class MembershipDetailSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
+    user = UserDetailSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
     organization_name = serializers.CharField(
         source="organization.name", read_only=True
