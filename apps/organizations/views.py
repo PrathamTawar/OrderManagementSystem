@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.db import IntegrityError, transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -24,10 +25,14 @@ from .serializers import (
     InvitationSerializer,
     MembershipCreateSerializer,
     MembershipDetailSerializer,
+    MembershipListSerializer,
+    MembershipOwnDetailSerializer,
+    MembershipUpdateSerializer,
     OrganizationListSerializer,
     OrganizationSerializer,
     PermissionListSerializer,
     RoleCreateSerializer,
+    RoleListSerializer,
     RoleSerializer,
 )
 
@@ -70,7 +75,6 @@ class OrganizationListCreateView(APIView):
 class OrganizationDetailView(OrgAPIView):
     model = Organization
     serializer_class = OrganizationSerializer
-    own_serializer_class = OrganizationSerializer
     org_lookup = "id"
 
     def get_organization(self, request):
@@ -96,15 +100,118 @@ class OrganizationDetailView(OrgAPIView):
 
 class MembershipListView(OrgAPIView):
     model = Membership
-    serializer_class = MembershipDetailSerializer
+    serializer_class = MembershipListSerializer
     permission_map = {  # noqa: RUF012
         "GET": "organizations.view_membership",
     }
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related(
+                "user",
+                "organization",
+                "role",
+                "created_by__user",
+                "last_updated_by__user",
+            )
+        )
 
     def get(self, request):
         memberships = self.get_queryset()
         serializer = self.get_serializer(memberships, many=True)
         return Response(serializer.data)
+
+
+class MembershipDetailView(OrgAPIView):
+    model = Membership
+    serializer_class = MembershipDetailSerializer
+    create_serializer_class = MembershipCreateSerializer
+    update_serializer_class = MembershipUpdateSerializer
+    permission_map = {  # noqa: RUF012
+        "GET": "organizations.view_membership",
+        "PUT": "organizations.edit_membership",
+        "DELETE": "organizations.delete_membership",
+    }
+
+    def get_queryset(self):
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related(
+                "user",
+                "organization",
+                "role",
+                "role__created_by__user",
+                "role__last_updated_by__user",
+                "created_by__user",
+                "created_by__role",
+                "last_updated_by__user",
+                "last_updated_by__role",
+            )
+        )
+
+        # Only the full serializer returns the role's permissions.
+        if self.request.org_scope == "all":
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "role__permissions",
+                    queryset=Permission.objects.select_related("content_type"),
+                )
+            )
+
+        return queryset
+
+    def get(self, request, pk):
+        membership = self.get_object(pk=pk)
+        serializer = self.get_serializer(membership)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        membership = self.get_object(pk=pk)
+        serializer = self.get_serializer(
+            membership,
+            data=request.data,
+            partial=True,
+            context={"membership": request.org_membership},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        membership = self.get_object(pk=pk)
+        membership.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MembershipOwnDetailView(OrgAPIView):
+    model = Membership
+    serializer_class = MembershipOwnDetailSerializer
+    own_serializer_class = MembershipOwnDetailSerializer
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related(
+                "user",
+                "organization",
+                "role",
+                "role__created_by__user",
+                "role__last_updated_by__user",
+                "created_by__user",
+                "created_by__role",
+                "last_updated_by__user",
+                "last_updated_by__role",
+            )
+        )
+
+    def get(self, request):
+        membership = request.org_membership
+        serializer = self.get_serializer(membership)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class MembershipInvitationListCreateView(OrgAPIView):
@@ -153,7 +260,7 @@ class MembershipInvitationListCreateView(OrgAPIView):
                 now = timezone.now()
                 self._expire_pending_invitations(organization, data["email"], now)
                 invitation = serializer.save(
-                    invited_by=request.user,
+                    invited_by=request.org_membership,
                     organization=organization,
                     token_hash=token_hash,
                     expires_at=now + timedelta(hours=self.expiration_time),
@@ -166,6 +273,13 @@ class MembershipInvitationListCreateView(OrgAPIView):
                     email__iexact=invitation.email
                 ).exists()
 
+                message_data = {
+                    "existing_user": existing_user,
+                    "invited_by_email": request.user.email,
+                    "accept_url": accept_url,
+                    "organization_name": organization_name,
+                }
+
                 transaction.on_commit(
                     lambda: send_email_task.delay(
                         subject=f"Invitation to join {organization_name}",
@@ -175,12 +289,7 @@ class MembershipInvitationListCreateView(OrgAPIView):
                         ),
                         recipient_list=[invitation.email],
                         template_path="membership_invitation.html",
-                        message_data={
-                            "existing_user": existing_user,
-                            "invited_by_email": invitation.invited_by.email,
-                            "accept_url": accept_url,
-                            "organization_name": organization_name,
-                        },
+                        message_data=message_data,
                     )
                 )
         except IntegrityError as exc:
@@ -208,8 +317,9 @@ class MembershipInvitationListCreateView(OrgAPIView):
 
 class RoleListCreateView(OrgAPIView):
     model = Role
-    serializer_class = RoleSerializer
+    serializer_class = RoleListSerializer
     create_serializer_class = RoleCreateSerializer
+    update_serializer_class = RoleCreateSerializer
 
     def get(self, request):
         roles = self.get_queryset()
@@ -231,6 +341,47 @@ class RoleListCreateView(OrgAPIView):
             )
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RoleDetailView(OrgAPIView):
+    model = Role
+    serializer_class = RoleSerializer
+    create_serializer_class = RoleCreateSerializer
+    update_serializer_class = RoleCreateSerializer
+    permission_map = {  # noqa: RUF012
+        "GET": "organizations.view_role",
+        "PUT": "organizations.edit_role",
+        "DELETE": "organizations.delete_role",
+    }
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("organization", "created_by", "last_updated_by")
+        )
+
+    def get(self, request, pk):
+        role = self.get_object(pk=pk)
+        serializer = self.get_serializer(role)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        role = self.get_object(pk=pk)
+        serializer = self.get_serializer(
+            role,
+            data=request.data,
+            partial=True,
+            context={"membership": request.org_membership},
+        )
+        serializer.is_valid(raise_exception=True)
+        role = serializer.save()
+        return Response(self.serializer_class(role).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        role = self.get_object(pk=pk)
+        role.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PermissionListView(OrgAPIView):
@@ -325,7 +476,6 @@ class InvitationAcceptView(APIView):
                     user_serializer = SignupSerializer(data=data)
                     user_serializer.is_valid(raise_exception=True)
                     user = user_serializer.save()
-                    print("user saved---------------------------------------")
 
                 # Create membership for either type of user.
                 membership_serializer = MembershipCreateSerializer(
@@ -337,12 +487,15 @@ class InvitationAcceptView(APIView):
                         "organization_id": invitation.organization_id,
                     },
                 )
-                print("membership_serializer saved------------------------", invitation.__dict__)
                 membership_serializer.is_valid(raise_exception=True)
-                membership_serializer.save(organization=invitation.organization)
+                membership_serializer.save(
+                    organization=invitation.organization,
+                    created_by=invitation.invited_by,
+                )
 
                 invitation.status = MembershipInvitation.Status.ACCEPTED
-                invitation.save(update_fields=["status"])
+                invitation.accepted_at = timezone.now()
+                invitation.save(update_fields=["status", "accepted_at"])
 
         except IntegrityError:
             return Response(

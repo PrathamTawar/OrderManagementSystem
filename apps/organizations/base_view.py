@@ -33,6 +33,11 @@ class OrgAPIView(APIView):
     create_serializer_class = None
 
     """
+    Serializer used when the method is PUT/PATCH.
+    """
+    update_serializer_class = None
+
+    """
     Field used to restrict objects to the current organization.
 
     Example:
@@ -69,6 +74,8 @@ class OrgAPIView(APIView):
         """
         if self.request.method == "POST" and self.create_serializer_class is not None:
             return self.create_serializer_class
+        elif self.request.method in ["PUT", "PATCH"] and self.update_serializer_class is not None:
+            return self.update_serializer_class
 
         elif self.request.org_scope == "own":
             if self.own_serializer_class is None:

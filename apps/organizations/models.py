@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.db import models
 from django.db.models import Q
@@ -38,9 +37,31 @@ class Role(models.Model):
     permissions = models.ManyToManyField(
         Permission, blank=True, related_name="organization_roles"
     )
+    created_by = models.ForeignKey(
+        "organizations.Membership",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="%(app_label)s_%(class)s_created",
+    )
+    last_updated_by = models.ForeignKey(
+        "organizations.Membership",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="%(app_label)s_%(class)s_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("name", "organization")
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                Lower("name"),
+                "organization",
+                name="uniq_name_org_roles",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.organization.name} - {self.name}"
@@ -62,6 +83,22 @@ class Membership(models.Model):
         blank=True,
         related_name="user_relationships",
     )
+    created_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="%(app_label)s_%(class)s_created",
+    )
+    last_updated_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="%(app_label)s_%(class)s_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     is_owner = models.BooleanField(default=False)
 
     class Meta:
@@ -99,9 +136,10 @@ class MembershipInvitation(models.Model):
         on_delete=models.PROTECT,
     )
     invited_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        Membership,
         on_delete=models.SET_NULL,
         null=True,
+        related_name="%(app_label)s_%(class)s_invited",
     )
 
     token_hash = models.CharField(max_length=64, unique=True)

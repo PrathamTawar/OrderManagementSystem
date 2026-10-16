@@ -1,5 +1,6 @@
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.utils import timezone
 from phonenumber_field.serializerfields import PhoneNumberField
 from rest_framework import serializers
@@ -29,27 +30,7 @@ class PermissionListSerializer(serializers.ModelSerializer):
         )
 
 
-# *role serializer R
-class PermissionSerializer(serializers.ModelSerializer):
-    app_label = serializers.CharField(
-        source="content_type.app_label",
-        read_only=True,
-    )
-
-    class Meta:
-        model = Permission
-        fields = ["app_label", "codename", "name"]  # noqa: RUF012
-
-
-class RoleSerializer(serializers.ModelSerializer):
-    permissions = PermissionSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Role
-        fields = ["id", "name", "permissions"]  # noqa: RUF012
-
-
-# *role serializer W
+# * role serializer W
 class PermissionField(serializers.RelatedField):
     queryset = (
         Permission.objects.none()
@@ -73,44 +54,270 @@ class PermissionField(serializers.RelatedField):
 
 class RoleCreateSerializer(serializers.ModelSerializer):
     permissions = PermissionField(many=True, required=False)
+    remove_permissions = PermissionField(
+        many=True,
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = Role
-        fields = ["id", "name", "permissions"]  # noqa: RUF012
+        fields = ["id", "name", "permissions", "remove_permissions"]  # noqa: RUF012
 
-    def validate_permissions(self, ids):
+    def _validate_permissions(self, ids, *, removing=False):
         ids = set(ids)
 
-        # 1. existence + assignable apps in one query; unknown and blocked ids fail the same way
         perms = list(
             Permission.objects.filter(
-                id__in=ids, content_type__app_label__in=assignable_apps()
+                id__in=ids,
+                content_type__app_label__in=assignable_apps(),
             ).select_related("content_type")
         )
-        if missing := ids - {p.id for p in perms}:
+
+        if missing := ids - {p.pk for p in perms}:
             raise serializers.ValidationError(
                 f"Invalid permission ids: {sorted(missing)}"
             )
 
-        wanted = {(p.content_type.app_label, p.codename) for p in perms}
-
-        # 2. escalation check, owner is exempt (owner has no role, so never touch it)
         membership = self.context["membership"]
-        if not membership.is_owner:
-            current = (
-                set(
-                    self.instance.permissions.values_list(
-                        "content_type__app_label", "codename"
-                    )
-                )
-                if self.instance
-                else set()
+
+        current_ids = set()
+        current_keys = set()
+
+        if self.instance:
+            current_permissions = list(
+                self.instance.permissions.select_related("content_type")
             )
-            if (wanted ^ current) - grantable_keys(membership):
+            current_ids = {p.pk for p in current_permissions}
+            current_keys = {
+                (p.content_type.app_label, p.codename) for p in current_permissions
+            }
+
+        if removing:
+            if self.instance is None:
                 raise serializers.ValidationError(
-                    "You cannot grant or remove permissions you do not have"
+                    "Permissions can only be removed when updating a role."
                 )
-        return perms  # Permission objects, so ModelSerializer sets the M2M
+
+            if missing_from_role := ids - current_ids:
+                raise serializers.ValidationError(
+                    f"Permissions are not assigned to this role: "
+                    f"{sorted(missing_from_role)}"
+                )
+
+        if not membership.is_owner:
+            requested_keys = {(p.content_type.app_label, p.codename) for p in perms}
+            grantable = grantable_keys(membership)
+
+            if removing:
+                forbidden = requested_keys - grantable
+            else:
+                forbidden = (requested_keys - current_keys) - grantable
+
+            if forbidden:
+                action = "remove" if removing else "grant"
+                raise serializers.ValidationError(
+                    f"You cannot {action} permissions you do not have "
+                    "permission to manage."
+                )
+
+        return perms
+
+    def validate_permissions(self, ids):
+        return self._validate_permissions(ids)
+
+    def validate_remove_permissions(self, ids):
+        return self._validate_permissions(ids, removing=True)
+
+    def validate(self, attrs):
+        if self.instance is None and "remove_permissions" in attrs:
+            raise serializers.ValidationError(
+                {
+                    "remove_permissions": (
+                        "Permissions can only be removed when updating a role."
+                    )
+                }
+            )
+
+        added = {p.pk for p in attrs.get("permissions", [])}
+        removed = {p.pk for p in attrs.get("remove_permissions", [])}
+
+        if added & removed:
+            raise serializers.ValidationError(
+                {
+                    "permissions": (
+                        "A permission cannot be added and removed in the same request."
+                    )
+                }
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        membership = self.context["membership"]
+
+        permissions = validated_data.pop("permissions", None)
+        remove_permissions = validated_data.pop("remove_permissions", None)
+
+        validated_data["last_updated_by"] = membership
+
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+
+            if remove_permissions:
+                instance.permissions.remove(*remove_permissions)
+
+            if permissions:
+                instance.permissions.add(*permissions)
+
+        return instance
+
+    def create(self, validated_data):
+        membership = self.context["membership"]
+
+        validated_data.pop("remove_permissions", None)
+        validated_data["organization"] = membership.organization
+        validated_data["created_by"] = membership
+
+        return super().create(validated_data)
+
+
+# * membership serializer R
+class MembershipListSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name", read_only=True
+    )
+    created_by_name = serializers.CharField(
+        source="created_by.user.full_name", read_only=True
+    )
+    last_updated_by_name = serializers.CharField(
+        source="last_updated_by.user.full_name", read_only=True
+    )
+
+    class Meta:
+        model = Membership
+        fields = [  # noqa: RUF012
+            "id",
+            "user_name",
+            "role_name",
+            "organization_name",
+            "created_by_name",
+            "last_updated_by_name",
+            "is_owner",
+        ]
+
+    def get_fields(self):
+        fields = super().get_fields()
+
+        for field in fields.values():
+            field.read_only = True
+
+        return fields
+
+
+class MembershipActorSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.full_name", read_only=True)
+    role_name = serializers.CharField(source="role.name", read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = ["id", "user_name", "role_name", "is_owner"]  # noqa: RUF012
+
+
+# * role serializer R
+class PermissionSerializer(serializers.ModelSerializer):
+    app_label = serializers.CharField(
+        source="content_type.app_label",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Permission
+        fields = ["app_label", "codename", "name"]  # noqa: RUF012
+
+
+class RoleSerializer(serializers.ModelSerializer):
+    permissions = PermissionSerializer(many=True, read_only=True)
+    created_by_name = serializers.CharField(
+        source="created_by.user.full_name", read_only=True
+    )
+    last_updated_by_name = serializers.CharField(
+        source="last_updated_by.user.full_name", read_only=True
+    )
+
+    class Meta:
+        model = Role
+        fields = [  # noqa: RUF012
+            "id",
+            "name",
+            "permissions",
+            "created_by_name",
+            "last_updated_by_name",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class RoleListSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(
+        source="created_by.user.full_name", read_only=True
+    )
+
+    class Meta:
+        model = Role
+        fields = ["id", "name", "created_by_name", "created_at"]  # noqa: RUF012
+
+
+# * membership serializer R
+class MembershipDetailSerializer(serializers.ModelSerializer):
+    user = UserDetailSerializer(read_only=True)
+    role = RoleSerializer(read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name", read_only=True
+    )
+    created_by = MembershipActorSerializer(read_only=True)
+    last_updated_by = MembershipActorSerializer(read_only=True)
+
+    class Meta:
+        model = Membership
+        fields = [  # noqa: RUF012
+            "id",
+            "user",
+            "role",
+            "organization_name",
+            "created_by",
+            "last_updated_by",
+            "is_owner",
+        ]
+
+
+class MembershipOwnDetailSerializer(MembershipListSerializer):
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name", read_only=True
+    )
+    created_by_name = serializers.CharField(
+        source="created_by.user.full_name", read_only=True
+    )
+    last_updated_by_name = serializers.CharField(
+        source="last_updated_by.user.full_name", read_only=True
+    )
+
+    class Meta:
+        model = Membership
+        fields = [  # noqa: RUF012
+            "id",
+            "user",
+            "role_name",
+            "organization_name",
+            "created_by_name",
+            "last_updated_by_name",
+            "created_at",
+            "updated_at",
+            "is_owner",
+        ]
 
 
 # *organization serializer W/R
@@ -131,7 +338,7 @@ class OrganizationListSerializer(serializers.ModelSerializer):
     city = serializers.CharField(source="organization.city")
     state = serializers.CharField(source="organization.state")
     country = serializers.CharField(source="organization.country")
-    role = RoleSerializer(read_only=True)
+    role_name = serializers.CharField(source="role.name", read_only=True)
 
     class Meta:
         model = Membership
@@ -143,47 +350,9 @@ class OrganizationListSerializer(serializers.ModelSerializer):
             "city",
             "state",
             "country",
-            "role",
-            "is_owner",
-        ]
-
-
-# * membership serializer R
-class MembershipSerializer(serializers.ModelSerializer):
-    role_name = serializers.CharField(source="role.name", read_only=True)
-    organization_name = serializers.CharField(
-        source="organization.name", read_only=True
-    )
-
-    class Meta:
-        model = Membership
-        fields = [  # noqa: RUF012
-            "id",
-            "user",
             "role_name",
-            "organization_name",
             "is_owner",
         ]
-
-    def get_fields(self):
-        fields = super().get_fields()
-
-        for field in fields.values():
-            field.read_only = True
-
-        return fields
-
-
-class MembershipDetailSerializer(serializers.ModelSerializer):
-    user = UserDetailSerializer(read_only=True)
-    role = RoleSerializer(read_only=True)
-    organization_name = serializers.CharField(
-        source="organization.name", read_only=True
-    )
-
-    class Meta:
-        model = Membership
-        fields = ["id", "user", "role", "organization_name", "is_owner"]  # noqa: RUF012
 
 
 # * membership serializer W
@@ -203,10 +372,29 @@ class MembershipCreateSerializer(serializers.ModelSerializer):
         return role
 
 
+class MembershipUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Membership
+        fields = ["role", "is_owner"]  # noqa: RUF012
+
+    def validate_is_owner(self, value):
+        membership = self.context["membership"]
+        if value and not membership.is_owner:
+            raise serializers.ValidationError("You cannot change this.")
+        return value
+
+    def update(self, instance, validated_data):
+        membership = self.context["membership"]
+
+        validated_data["last_updated_by"] = membership
+        return super().update(instance, validated_data)
+
+
+# * invitation serializer W/R
 class InvitationSerializer(serializers.ModelSerializer):
     role_name = serializers.CharField(source="role.name", default=None, read_only=True)
     invited_by_name = serializers.CharField(
-        source="invited_by.full_name", read_only=True
+        source="invited_by.user.full_name", read_only=True
     )
     status = serializers.SerializerMethodField()
 
