@@ -77,8 +77,8 @@ class CustomerTypeListCreateView(CustomerAPIView):
     serializer_class = CustomerTypeListSerializer
     create_serializer_class = CustomerTypeCreateUpdateSerializer
     permission_map = {  # noqa: RUF012
-        "GET": "customers.view_customer_type",
-        "POST": "customers.add_customer_type",
+        "GET": "customers.view_customertype",
+        "POST": "customers.add_customertype",
     }
 
     def get(self, request):
@@ -102,9 +102,9 @@ class CustomerTypeDetailView(CustomerAPIView):
     create_serializer_class = CustomerTypeCreateUpdateSerializer
     update_serializer_class = create_serializer_class
     permission_map = {  # noqa: RUF012
-        "GET": "customers.view_customer_type",
-        "PUT": "customers.edit_customer_type",
-        "DELETE": "customers.delete_customer_type",
+        "GET": "customers.view_customertype",
+        "PUT": "customers.edit_customertype",
+        "DELETE": "customers.delete_customertype",
     }
 
     def get(self, request, pk):
