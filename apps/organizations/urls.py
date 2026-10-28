@@ -1,16 +1,37 @@
 from django.urls import path
 
-from . import views
+from .views import (
+    InvitationAcceptView,
+    MembershipDetailView,
+    MembershipInvitationListCreateView,
+    MembershipListView,
+    MembershipOwnDetailView,
+    OrganizationDetailView,
+    OrganizationListCreateView,
+    PermissionListView,
+    RoleDetailView,
+    RoleListCreateView,
+)
 
 urlpatterns = [
-    path("", views.OrganizationListCreateView.as_view(), name="organization-list-create"),
-    path("my/", views.OrganizationDetailView.as_view(), name="my-organization-detail"),
-    path("membership/", views.MembershipListView.as_view(), name="membership-list"),
-    path("membership/<int:pk>/", views.MembershipDetailView.as_view(), name="membership-detail"),
-    path("membership/my/", views.MembershipOwnDetailView.as_view(), name="my-membership-detail"),
-    path("invitation/", views.MembershipInvitationListCreateView.as_view(), name="membership-invitation-list-create"),
-    path("invitation/accept/", views.InvitationAcceptView.as_view(), name="invitation-accept"),
-    path("role/", views.RoleListCreateView.as_view(), name="role-list-create"),
-    path("role/<int:pk>/", views.RoleDetailView.as_view(), name="role-detail"),
-    path("permissions/", views.PermissionListView.as_view(), name="permission-list"),
+    path("", OrganizationListCreateView.as_view(), name="organization-list-create"),
+    path("my/", OrganizationDetailView.as_view(), name="my-organization-detail"),
+    path("membership/", MembershipListView.as_view(), name="membership-list"),
+    path(
+        "membership/<int:pk>/", MembershipDetailView.as_view(), name="membership-detail"
+    ),
+    path(
+        "membership/my/", MembershipOwnDetailView.as_view(), name="my-membership-detail"
+    ),
+    path(
+        "invitation/",
+        MembershipInvitationListCreateView.as_view(),
+        name="membership-invitation-list-create",
+    ),
+    path(
+        "invitation/accept/", InvitationAcceptView.as_view(), name="invitation-accept"
+    ),
+    path("role/", RoleListCreateView.as_view(), name="role-list-create"),
+    path("role/<int:pk>/", RoleDetailView.as_view(), name="role-detail"),
+    path("permissions/", PermissionListView.as_view(), name="permission-list"),
 ]
