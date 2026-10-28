@@ -2,13 +2,6 @@ from apps.organizations.base_view import OrgAPIView
 
 
 class CustomerAPIView(OrgAPIView):
-    model = None
-    serializer_class = None
-    create_serializer_class = None
-    update_serializer_class = None
-
-    org_lookup = "organization_id"
-
     @property
     def permission_map(self):
         if self.model is None:
