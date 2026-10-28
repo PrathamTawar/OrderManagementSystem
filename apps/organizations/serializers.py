@@ -235,7 +235,7 @@ class PermissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Permission
-        fields = ["app_label", "codename", "name"]  # noqa: RUF012
+        fields = ["id", "app_label", "codename", "name"]  # noqa: RUF012
 
 
 class RoleSerializer(serializers.ModelSerializer):
